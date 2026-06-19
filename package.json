@@ -12,7 +12,7 @@
     "build": "expo export --platform web --output-dir dist && node scripts/prepare-pwa.js",
     "check:open-source": "node scripts/check-open-source-safety.js",
     "check": "npm run check:open-source && npm run build",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name worklog"
+    "deploy": "npm run build && npx wrangler pages deploy dist --project-name worklog"
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.1",

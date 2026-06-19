@@ -161,6 +161,7 @@ function sanitizePayload(payload = {}) {
     ideas: Array.isArray(payload.ideas) ? payload.ideas : [],
     wishes: Array.isArray(payload.wishes) ? payload.wishes : [],
     projectMeta: payload.projectMeta && typeof payload.projectMeta === 'object' ? payload.projectMeta : {},
+    reviews: sanitizeReviews(payload.reviews),
     reportKind: typeof payload.reportKind === 'string' ? payload.reportKind : '',
     reportMaterials: payload.reportMaterials && typeof payload.reportMaterials === 'object' ? payload.reportMaterials : {},
     reportTemplate: typeof payload.reportTemplate === 'string' ? payload.reportTemplate : '',
@@ -169,6 +170,18 @@ function sanitizePayload(payload = {}) {
       endpoint: String(modelConfig.endpoint || ''),
       model: String(modelConfig.model || ''),
     },
+  };
+}
+
+function sanitizeReviews(value = {}) {
+  const empty = { daily: {}, weekly: {}, report: {}, projects: {} };
+  if (!value || typeof value !== 'object') return empty;
+
+  return {
+    daily: value.daily && typeof value.daily === 'object' ? value.daily : {},
+    weekly: value.weekly && typeof value.weekly === 'object' ? value.weekly : {},
+    report: value.report && typeof value.report === 'object' ? value.report : {},
+    projects: value.projects && typeof value.projects === 'object' ? value.projects : {},
   };
 }
 

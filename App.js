@@ -74,6 +74,7 @@ const storageKeys = {
   reportKind: 'worklog.reportKind',
   reportMaterials: 'worklog.reportMaterials',
   reportTemplate: 'worklog.reportTemplate',
+  reviews: 'worklog.reviews',
 };
 
 const reportRangeOptions = [
@@ -210,6 +211,8 @@ export default function App() {
   const [highlightedEntryId, setHighlightedEntryId] = useState('');
   const [copyNotice, setCopyNotice] = useState('');
   const [modelLoading, setModelLoading] = useState(false);
+  const [reviewLoadingKey, setReviewLoadingKey] = useState('');
+  const [reviewNotice, setReviewNotice] = useState({ key: '', text: '' });
   const initialReportRange = useMemo(() => getDateRangeByPreset('current', starterEntries), []);
   const [searchQuery, setSearchQuery] = useState('');
   const [onboardingOpen, setOnboardingOpen] = useState(() => !loadStored(storageKeys.onboardingDone, false) && loadStored(storageKeys.entries, starterEntries).length === 0);
@@ -252,6 +255,7 @@ export default function App() {
   const [wishes, setWishes] = useState(() => loadStored(storageKeys.wishes, []));
   const [entries, setEntries] = useState(() => loadStored(storageKeys.entries, starterEntries));
   const [projectMeta, setProjectMeta] = useState(() => loadStored(storageKeys.projectMeta, {}));
+  const [reviews, setReviews] = useState(() => sanitizeReviews(loadStored(storageKeys.reviews, createEmptyReviews())));
   const [selectedDate, setSelectedDate] = useState(getISODate());
   const [calendarMonth, setCalendarMonth] = useState(() => new Date());
   const [calendarExpanded, setCalendarExpanded] = useState(false);
@@ -262,6 +266,7 @@ export default function App() {
   useEffect(() => saveStored(storageKeys.ideas, ideas), [ideas]);
   useEffect(() => saveStored(storageKeys.wishes, wishes), [wishes]);
   useEffect(() => saveStored(storageKeys.projectMeta, projectMeta), [projectMeta]);
+  useEffect(() => saveStored(storageKeys.reviews, reviews), [reviews]);
   useEffect(() => saveStored(storageKeys.reportKind, reportKind), [reportKind]);
   useEffect(() => saveStored(storageKeys.reportMaterials, reportMaterials), [reportMaterials]);
   useEffect(() => saveStored(storageKeys.reportTemplate, reportTemplate), [reportTemplate]);
@@ -289,7 +294,7 @@ export default function App() {
     }, 900);
 
     return () => clearTimeout(syncTimerRef.current);
-  }, [authToken, syncReady, entries, goals, ideas, wishes, projectMeta, modelProvider, modelEndpoint, modelName, reportKind, reportMaterials, reportTemplate]);
+  }, [authToken, syncReady, entries, goals, ideas, wishes, projectMeta, reviews, modelProvider, modelEndpoint, modelName, reportKind, reportMaterials, reportTemplate]);
 
   useEffect(() => () => clearTimeout(undoTimerRef.current), []);
 
@@ -317,6 +322,12 @@ export default function App() {
   const weekDays = useMemo(() => getWeekDays(parseISODate(selectedDate)), [selectedDate]);
   const visibleDays = calendarExpanded ? calendarDays : weekDays;
   const authPasswordStrength = useMemo(() => getPasswordStrength(authPassword), [authPassword]);
+  const dailyReviewKey = selectedDate;
+  const dailyReview = reviews.daily?.[dailyReviewKey];
+  const weeklyReviewKey = useMemo(() => getReviewKey('weekly', weeklyRange, 'all', weeklyEntries), [weeklyRange, weeklyEntries]);
+  const weeklyReview = reviews.weekly?.[weeklyReviewKey];
+  const reportReviewKey = useMemo(() => getReviewKey(reportKind, normalizedReportRange, reportProject, reportEntries), [reportKind, normalizedReportRange, reportProject, reportEntries]);
+  const reportReview = reviews.report?.[reportReviewKey];
   const calendarPanResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponderCapture: (_, gesture) => {
       return Math.abs(gesture.dy) > 10 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.15;
@@ -452,6 +463,7 @@ export default function App() {
       ideas,
       wishes,
       projectMeta,
+      reviews,
       reportKind,
       reportMaterials,
       reportTemplate,
@@ -470,6 +482,7 @@ export default function App() {
     if (Array.isArray(payload.ideas)) setIdeas(payload.ideas);
     if (Array.isArray(payload.wishes)) setWishes(payload.wishes);
     if (payload.projectMeta && typeof payload.projectMeta === 'object') setProjectMeta(payload.projectMeta);
+    if (payload.reviews) setReviews(sanitizeReviews(payload.reviews));
     if (typeof payload.reportKind === 'string') setReportKind(payload.reportKind);
     if (payload.reportMaterials && typeof payload.reportMaterials === 'object') setReportMaterials({ ...defaultReportMaterials, ...payload.reportMaterials });
     if (typeof payload.reportTemplate === 'string') setReportTemplate(payload.reportTemplate);
@@ -594,6 +607,7 @@ export default function App() {
       ideas,
       wishes,
       projectMeta,
+      reviews,
       reportKind,
       reportMaterials,
       reportTemplate,
@@ -612,6 +626,7 @@ export default function App() {
     setIdeas(payload.ideas);
     setWishes(payload.wishes);
     setProjectMeta(payload.projectMeta);
+    setReviews(payload.reviews);
     setReportKind(payload.reportKind || 'weekly');
     setReportMaterials({ ...defaultReportMaterials, ...payload.reportMaterials });
     setReportTemplate(payload.reportTemplate || defaultReportTemplate);
@@ -879,6 +894,120 @@ export default function App() {
     }
   }
 
+  async function handleGenerateDailyReview() {
+    await generateReview({
+      scope: 'daily',
+      key: dailyReviewKey,
+      title: isToday(selectedDate) ? '今日点评' : `${formatMonthDay(parseISODate(selectedDate))} 点评`,
+      range: { start: selectedDate, end: selectedDate },
+      entries: entriesByDate[selectedDate] || [],
+      projectLabel: '当日全部记录',
+      goals,
+      ideas,
+      wishes,
+    });
+  }
+
+  async function handleGenerateWeeklyReview() {
+    await generateReview({
+      scope: 'weekly',
+      key: weeklyReviewKey,
+      title: '本周点评',
+      range: weeklyRange,
+      entries: weeklyEntries,
+      projectLabel: '本周全部项目',
+      goals,
+      ideas,
+      wishes,
+    });
+  }
+
+  async function handleGenerateReportReview() {
+    await generateReview({
+      scope: 'report',
+      key: reportReviewKey,
+      title: `${getReportTitle(reportKind, reportRange, normalizedReportRange, reportProjectLabel)}点评`,
+      range: normalizedReportRange,
+      entries: reportEntries,
+      projectLabel: reportProjectLabel,
+      goals,
+      ideas,
+      wishes,
+      report,
+    });
+  }
+
+  async function handleGenerateProjectReview(project) {
+    if (!project) return;
+
+    await generateReview({
+      scope: 'projects',
+      key: project.key,
+      title: `${project.label}项目点评`,
+      range: getEntriesDateRange(project.entries),
+      entries: project.entries,
+      projectLabel: project.label,
+      goals,
+      ideas,
+      wishes,
+      project,
+    });
+  }
+
+  async function generateReview(context) {
+    const loadingKey = `${context.scope}:${context.key}`;
+    setReviewLoadingKey(loadingKey);
+    setReviewNotice({ key: '', text: '' });
+
+    try {
+      const canUseAI = modelEndpoint.trim() && modelName.trim() && modelApiKey.trim();
+      const nextReview = canUseAI
+        ? await reviewWithModel({
+          endpoint: modelEndpoint,
+          model: modelName,
+          apiKey: modelApiKey,
+          context,
+        })
+        : buildLocalReview(context);
+
+      saveReview(context.scope, context.key, {
+        ...nextReview,
+        id: loadingKey,
+        title: context.title,
+        scope: context.scope,
+        source: canUseAI ? 'ai' : 'local',
+        generatedAt: new Date().toISOString(),
+      });
+
+      if (!canUseAI) setReviewNotice({ key: loadingKey, text: '未配置模型，已使用本地规则生成点评' });
+    } catch {
+      saveReview(context.scope, context.key, {
+        ...buildLocalReview(context),
+        id: loadingKey,
+        title: context.title,
+        scope: context.scope,
+        source: 'local',
+        generatedAt: new Date().toISOString(),
+      });
+      setReviewNotice({ key: loadingKey, text: 'AI 点评连接失败，已使用本地规则生成点评' });
+    } finally {
+      setReviewLoadingKey('');
+    }
+  }
+
+  function saveReview(scope, key, review) {
+    setReviews((current) => {
+      const safe = sanitizeReviews(current);
+      return {
+        ...safe,
+        [scope]: {
+          ...(safe[scope] || {}),
+          [key]: normalizeReview(review),
+        },
+      };
+    });
+  }
+
   function handleAddGoal(period) {
     const text = period === 'stage' ? stageGoalInput.trim() : yearGoalInput.trim();
     if (!text) return;
@@ -1028,8 +1157,20 @@ export default function App() {
                 entries={weeklyEntries}
                 projects={projectSummaries}
                 materialSummary={materialSummary}
+                review={weeklyReview}
+                loading={reviewLoadingKey === `weekly:${weeklyReviewKey}`}
                 onOpenMaterials={() => setActiveTab('modules')}
                 onOpenReport={() => openReportWorkspace({ kind: 'weekly', range: 'current' })}
+                onOpenReview={handleGenerateWeeklyReview}
+              />
+              <ReviewInsightCard
+                eyebrow="AI Review"
+                title={isToday(selectedDate) ? '今日点评' : '当日点评'}
+                review={dailyReview}
+                loading={reviewLoadingKey === `daily:${dailyReviewKey}`}
+                emptyText="点评会检查当天推进、风险、待办和缺失证据。"
+                notice={reviewNotice.key === `daily:${dailyReviewKey}` ? reviewNotice.text : ''}
+                onGenerate={handleGenerateDailyReview}
               />
               <View style={styles.searchCard}>
                 <TextInput
@@ -1098,6 +1239,9 @@ export default function App() {
             onSelect={setSelectedProjectKey}
             onRecord={handleRecordProject}
             onReport={handleOpenProjectReport}
+            projectReviews={reviews.projects}
+            reviewLoadingKey={reviewLoadingKey}
+            onReview={handleGenerateProjectReview}
           />
         )}
 
@@ -1198,6 +1342,16 @@ export default function App() {
               <View style={styles.reportPreviewBox}>
                 <Text style={styles.reportPreviewText}>{report}</Text>
               </View>
+              <ReviewInsightCard
+                embedded
+                eyebrow="Report Review"
+                title="点评这份报告"
+                review={reportReview}
+                loading={reviewLoadingKey === `report:${reportReviewKey}`}
+                emptyText="检查报告是否有结果证据、风险闭环和下阶段重点。"
+                notice={reviewNotice.key === `report:${reportReviewKey}` ? reviewNotice.text : ''}
+                onGenerate={handleGenerateReportReview}
+              />
               <Pressable style={styles.reportCopyButton} onPress={handleCopyReport}>
                 <Glyph name="copy" size={17} color="#fff" />
                 <Text style={styles.reportCopyText}>复制正式报告</Text>
@@ -1915,7 +2069,7 @@ function EntryCard({ entry, highlighted, onDelete, onSave }) {
   );
 }
 
-function ReviewPrompt({ entries, projects, materialSummary, onOpenMaterials, onOpenReport }) {
+function ReviewPrompt({ entries, projects, materialSummary, review, loading, onOpenMaterials, onOpenReport, onOpenReview }) {
   const riskCount = entries.filter((entry) => entry.type === 'risk').length;
   const activeProjects = projects.filter((project) => !project.archived).length;
 
@@ -1926,19 +2080,79 @@ function ReviewPrompt({ entries, projects, materialSummary, onOpenMaterials, onO
           <Text style={styles.cardLabel}>本周复盘</Text>
           <Text style={styles.reviewPromptTitle}>{entries.length ? '已经有材料了' : '先从一条记录开始'}</Text>
         </View>
-        <Pressable style={styles.reviewPromptButton} onPress={onOpenReport}>
-          <Text style={styles.reviewPromptButtonText}>生成周报</Text>
-        </Pressable>
+        <View style={styles.reviewPromptActions}>
+          <Pressable style={styles.reviewGhostButton} onPress={onOpenReview}>
+            <Text style={styles.reviewGhostButtonText}>{loading ? '点评中...' : 'AI点评'}</Text>
+          </Pressable>
+          <Pressable style={styles.reviewPromptButton} onPress={onOpenReport}>
+            <Text style={styles.reviewPromptButtonText}>生成周报</Text>
+          </Pressable>
+        </View>
       </View>
       <View style={styles.reviewStatsRow}>
         <ProjectStat value={entries.length} label="本周记录" />
         <ProjectStat value={activeProjects} label="项目" />
         <ProjectStat value={riskCount} label="风险" />
       </View>
+      {review && (
+        <View style={styles.weeklyReviewBox}>
+          <Text style={styles.weeklyReviewTitle}>{review.summary}</Text>
+          {review.actions.slice(0, 2).map((item, index) => (
+            <Text key={`${review.generatedAt}-action-${index}`} style={styles.weeklyReviewLine}>- {item}</Text>
+          ))}
+        </View>
+      )}
       <Pressable style={styles.reviewMaterialLine} onPress={onOpenMaterials}>
         <Text style={styles.reviewMaterialText}>{materialSummary.label}</Text>
         <Text style={styles.reviewMaterialAction}>整理材料</Text>
       </Pressable>
+    </View>
+  );
+}
+
+function ReviewInsightCard({ eyebrow, title, review, loading, emptyText, notice, embedded, onGenerate }) {
+  const hasReview = Boolean(review);
+
+  return (
+    <View style={embedded ? styles.reviewInsightPanel : styles.reviewInsightCard}>
+      <View style={styles.reviewInsightHeader}>
+        <View style={styles.reviewInsightTitleWrap}>
+          <Text style={styles.cardLabel}>{eyebrow}</Text>
+          <Text style={styles.reviewInsightTitle}>{title}</Text>
+        </View>
+        <Pressable style={styles.reviewGenerateButton} onPress={onGenerate}>
+          <Text style={styles.reviewGenerateText}>{loading ? '点评中...' : hasReview ? '重新点评' : '生成点评'}</Text>
+        </Pressable>
+      </View>
+      {hasReview ? (
+        <>
+          <View style={styles.reviewMetaRow}>
+            <Text style={styles.reviewSourceBadge}>{review.source === 'ai' ? 'AI 生成' : '本地规则'}</Text>
+            <Text style={styles.reviewTimeText}>{formatSyncTime(review.generatedAt)}</Text>
+          </View>
+          <Text style={styles.reviewSummary}>{review.summary}</Text>
+          <ReviewList title="做得好的地方" items={review.highlights} />
+          <ReviewList title="需要补齐" items={review.gaps} />
+          <ReviewList title="下一步建议" items={review.actions} />
+          <ReviewList title="职业素材提醒" items={review.careerTips} />
+        </>
+      ) : (
+        <Text style={styles.reviewEmptyText}>{emptyText}</Text>
+      )}
+      {notice ? <Text style={styles.reviewNotice}>{notice}</Text> : null}
+    </View>
+  );
+}
+
+function ReviewList({ title, items = [] }) {
+  if (!items.length) return null;
+
+  return (
+    <View style={styles.reviewList}>
+      <Text style={styles.reviewListTitle}>{title}</Text>
+      {items.slice(0, 4).map((item, index) => (
+        <Text key={`${title}-${index}`} style={styles.reviewListItem}>- {item}</Text>
+      ))}
     </View>
   );
 }
@@ -2020,7 +2234,7 @@ function OnboardingOverlay({ selectedProfile, onSelectProfile, onStart, onSkip }
   );
 }
 
-function ProjectDashboard({ projects, selectedKey, onArchive, onRename, onSelect, onRecord, onReport }) {
+function ProjectDashboard({ projects, selectedKey, onArchive, onRename, onSelect, onRecord, onReport, projectReviews, reviewLoadingKey, onReview }) {
   const [projectQuery, setProjectQuery] = useState('');
   const [projectFilter, setProjectFilter] = useState('all');
   const selected = projects.find((project) => project.key === selectedKey) || projects[0];
@@ -2071,6 +2285,15 @@ function ProjectDashboard({ projects, selectedKey, onArchive, onRename, onSelect
           <Text style={styles.secondaryActionText}>生成报告</Text>
         </Pressable>
       </View>
+
+      <ReviewInsightCard
+        eyebrow="Project Review"
+        title="项目点评"
+        review={projectReviews?.[selected.key]}
+        loading={reviewLoadingKey === `projects:${selected.key}`}
+        emptyText="点评会检查项目推进、风险闭环、待办密度和是否值得沉淀为职业素材。"
+        onGenerate={() => onReview(selected)}
+      />
 
       <View style={styles.projectManageCard}>
         <View style={styles.projectManageHeader}>
@@ -2350,6 +2573,7 @@ function sanitizePortableData(data = {}) {
     ideas: Array.isArray(data.ideas) ? data.ideas : [],
     wishes: Array.isArray(data.wishes) ? data.wishes : [],
     projectMeta: data.projectMeta && typeof data.projectMeta === 'object' ? data.projectMeta : {},
+    reviews: sanitizeReviews(data.reviews),
     reportKind: typeof data.reportKind === 'string' ? data.reportKind : 'weekly',
     reportMaterials: data.reportMaterials && typeof data.reportMaterials === 'object' ? {
       ...defaultReportMaterials,
@@ -2362,6 +2586,208 @@ function sanitizePortableData(data = {}) {
       model: String(data.modelConfig.model || ''),
     } : {},
   };
+}
+
+function createEmptyReviews() {
+  return {
+    daily: {},
+    weekly: {},
+    report: {},
+    projects: {},
+  };
+}
+
+function sanitizeReviews(value = {}) {
+  const safe = createEmptyReviews();
+  ['daily', 'weekly', 'report', 'projects'].forEach((scope) => {
+    if (!value[scope] || typeof value[scope] !== 'object') return;
+    Object.entries(value[scope]).forEach(([key, review]) => {
+      safe[scope][key] = normalizeReview(review);
+    });
+  });
+  return safe;
+}
+
+function normalizeReview(review = {}) {
+  return {
+    id: String(review.id || ''),
+    title: String(review.title || 'AI 点评'),
+    scope: String(review.scope || ''),
+    source: review.source === 'ai' ? 'ai' : 'local',
+    generatedAt: String(review.generatedAt || new Date().toISOString()),
+    summary: String(review.summary || '暂无点评摘要。'),
+    highlights: normalizeStringList(review.highlights),
+    gaps: normalizeStringList(review.gaps),
+    actions: normalizeStringList(review.actions),
+    careerTips: normalizeStringList(review.careerTips),
+  };
+}
+
+function normalizeStringList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 6);
+}
+
+function getReviewKey(scope, range = {}, project = 'all', entries = []) {
+  const ids = entries.map((entry) => entry.id).join(',');
+  return [scope, range.start || '', range.end || '', project || 'all', simpleHash(ids)].join(':');
+}
+
+function simpleHash(value) {
+  const text = String(value || '');
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+async function reviewWithModel({ endpoint, model, apiKey, context }) {
+  const response = await fetch(endpoint.trim(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey.trim()}`,
+    },
+    body: JSON.stringify({
+      model: model.trim(),
+      temperature: 0.25,
+      max_tokens: 900,
+      messages: [
+        {
+          role: 'system',
+          content: '你是 WorkLog 的 AI 工作复盘教练。只返回 JSON，不要 Markdown。不要编造数据；如果记录里没有指标，要指出缺少证据。',
+        },
+        {
+          role: 'user',
+          content: buildReviewPrompt(context),
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('review request failed');
+  }
+
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content || '';
+  const jsonText = content.match(/\{[\s\S]*\}/)?.[0] || content;
+  const parsed = JSON.parse(jsonText);
+
+  return normalizeReview({
+    summary: parsed.summary,
+    highlights: parsed.highlights,
+    gaps: parsed.gaps,
+    actions: parsed.actions,
+    careerTips: parsed.careerTips,
+    source: 'ai',
+  });
+}
+
+function buildReviewPrompt(context = {}) {
+  const entries = Array.isArray(context.entries) ? context.entries : [];
+  const lines = entries.slice(0, 40).map(formatReportEntryLine).join('\n') || '- 暂无记录';
+  const goals = formatGoalMaterials(context.goals);
+  const ideas = formatIdeaWishMaterials(context.ideas, context.wishes);
+  const project = context.project ? [
+    `项目记录数：${context.project.total}`,
+    `完成数：${context.project.workCount}`,
+    `待跟进数：${context.project.todoCount}`,
+    `风险数：${context.project.riskCount}`,
+  ].join('\n') : '';
+
+  return `请点评下面这组 WorkLog 材料，返回 JSON：
+{
+  "summary": "一句话总结",
+  "highlights": ["做得好的地方，1-3条"],
+  "gaps": ["缺口/风险/证据不足，1-3条"],
+  "actions": ["下一步建议，2-4条"],
+  "careerTips": ["能否转成简历/作品集素材以及缺什么证据，1-3条"]
+}
+
+点评范围：${context.title || 'WorkLog 点评'}
+时间：${context.range?.start || '未设置'} - ${context.range?.end || '未设置'}
+项目：${context.projectLabel || '全部'}
+${project}
+
+记录：
+${lines}
+
+目标：
+${goals}
+
+灵感与清单：
+${ideas}
+
+要求：
+1. 用中文，短句，具体。
+2. 不要编造上线效果、转化率、曝光量等记录里没有的数据。
+3. 如果缺少结果证据，请明确指出。
+4. 输出必须是合法 JSON。`;
+}
+
+function buildLocalReview(context = {}) {
+  const entries = Array.isArray(context.entries) ? context.entries : [];
+  const work = entries.filter((entry) => entry.type === 'work');
+  const todo = entries.filter((entry) => entry.type === 'todo');
+  const risk = entries.filter((entry) => entry.type === 'risk');
+  const life = entries.filter((entry) => entry.type === 'life');
+  const projectCount = new Set(entries.map((entry) => normalizeProjectKey(entry.project)).filter(Boolean)).size;
+  const hasEvidence = entries.some((entry) => hasResultEvidence(`${entry.project} ${entry.formalText} ${entry.rawText}`));
+  const projectText = context.projectLabel && !/全部|当日/.test(context.projectLabel) ? `${context.projectLabel} ` : '';
+
+  if (!entries.length) {
+    return normalizeReview({
+      summary: `${context.title || '当前范围'}还没有记录，先补一条最小事实会更容易复盘。`,
+      highlights: ['已经留出了复盘入口，适合先从一条记录开始。'],
+      gaps: ['缺少可点评的原始记录，无法判断推进质量。'],
+      actions: ['补一条完成事项或待跟进事项。', '如果今天没有工作记录，也可以记录生活、学习或一个想法。'],
+      careerTips: ['职业素材需要项目、动作和结果证据，当前还不能沉淀。'],
+    });
+  }
+
+  const summary = `${projectText}共 ${entries.length} 条记录，包含 ${work.length} 条完成、${todo.length} 条待跟进、${risk.length} 条风险，覆盖 ${projectCount || 1} 个项目。`;
+  const highlights = [];
+  const gaps = [];
+  const actions = [];
+  const careerTips = [];
+
+  if (work.length) highlights.push(`已有 ${work.length} 条完成事项，说明这段时间不是单纯待办堆积。`);
+  if (projectCount > 1) highlights.push(`记录覆盖 ${projectCount} 个项目，适合做横向复盘。`);
+  if (life.length) highlights.push('生活记录也被纳入，后续能看到工作节奏和个人状态的关系。');
+  if (!highlights.length) highlights.push('已经把碎片写进系统，比留在聊天记录里更容易追踪。');
+
+  if (risk.length) gaps.push(`存在 ${risk.length} 条风险，需要明确负责人、影响范围和下一步处理时间。`);
+  if (todo.length > work.length) gaps.push('待跟进数量高于完成事项，建议检查是否有事项长期未闭环。');
+  if (!hasEvidence) gaps.push('当前记录缺少数字、结果或用户反馈，后续不太容易转成强简历素材。');
+  if (!risk.length && todo.length === 0) gaps.push('风险和待办都较少，可能是记录偏结果，缺少过程中的阻塞和下一步。');
+
+  if (todo.length) actions.push(`优先处理 ${todo[0].project}：${todo[0].formalText}`);
+  if (risk.length) actions.push(`先把 ${risk[0].project} 的风险拆成影响、责任人和预计解决时间。`);
+  if (!hasEvidence) actions.push('给关键完成事项补一条数据证据，例如曝光、转化、数量、反馈或验收结论。');
+  actions.push('下次记录时尽量写清“我做了什么、影响了什么、下一步是什么”。');
+
+  if (work.length && hasEvidence) {
+    careerTips.push('已有结果证据，可以尝试沉淀为简历 bullet 或项目作品集片段。');
+  } else if (work.length) {
+    careerTips.push('完成事项可以作为职业素材候选，但还需要补充指标、范围或业务影响。');
+  } else {
+    careerTips.push('当前更像计划和风险跟踪，暂不适合直接写进简历。');
+  }
+  if (projectCount === 1 && entries[0]?.project) careerTips.push(`如果 ${entries[0].project} 是长期项目，可以补充背景、目标和最终结果。`);
+
+  return normalizeReview({
+    summary,
+    highlights,
+    gaps,
+    actions,
+    careerTips,
+  });
+}
+
+function hasResultEvidence(text) {
+  return /(\d+(\.\d+)?%|\d+\s*(个|条|次|人|天|周|月|小时|h|H)|上线|发布|验收|转化|点击|曝光|留存|收入|成本|效率|反馈|数据|指标|AB|A\/B)/i.test(String(text || ''));
 }
 
 async function polishWithModel({ endpoint, model, apiKey, rawText, fallback }) {
@@ -3045,12 +3471,34 @@ const styles = StyleSheet.create({
   reviewPrompt: { ...lightShadow, gap: 12, borderRadius: 8, padding: 12, marginTop: 12, backgroundColor: '#fff' },
   reviewPromptHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   reviewPromptTitle: { marginTop: 3, color: '#111827', fontSize: 18, fontWeight: '900' },
+  reviewPromptActions: { flexDirection: 'row', gap: 8 },
   reviewPromptButton: { minHeight: 36, borderRadius: 8, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111827' },
   reviewPromptButtonText: { color: '#fff', fontSize: 12, fontWeight: '900' },
+  reviewGhostButton: { minHeight: 36, borderRadius: 8, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f4f6f8' },
+  reviewGhostButtonText: { color: '#111827', fontSize: 12, fontWeight: '900' },
   reviewStatsRow: { flexDirection: 'row', gap: 8 },
+  weeklyReviewBox: { gap: 5, borderRadius: 8, padding: 10, backgroundColor: '#f8fafc' },
+  weeklyReviewTitle: { color: '#111827', lineHeight: 20, fontWeight: '900' },
+  weeklyReviewLine: { color: '#475569', lineHeight: 19, fontSize: 12, fontWeight: '700' },
   reviewMaterialLine: { minHeight: 40, borderRadius: 8, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, backgroundColor: '#f8fafc' },
   reviewMaterialText: { flex: 1, color: '#475569', fontSize: 12, lineHeight: 18, fontWeight: '800' },
   reviewMaterialAction: { color: '#111827', fontSize: 12, fontWeight: '900' },
+  reviewInsightCard: { ...lightShadow, gap: 10, borderRadius: 8, padding: 12, marginTop: 12, marginBottom: 2, backgroundColor: '#fff' },
+  reviewInsightPanel: { gap: 10, borderRadius: 8, padding: 12, marginTop: 10, backgroundColor: '#f8fafc' },
+  reviewInsightHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  reviewInsightTitleWrap: { flex: 1 },
+  reviewInsightTitle: { marginTop: 3, color: '#111827', fontSize: 17, lineHeight: 22, fontWeight: '900' },
+  reviewGenerateButton: { minHeight: 36, borderRadius: 8, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111827' },
+  reviewGenerateText: { color: '#fff', fontSize: 12, fontWeight: '900' },
+  reviewMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  reviewSourceBadge: { overflow: 'hidden', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, color: '#111827', fontSize: 11, fontWeight: '900', backgroundColor: '#e5e7eb' },
+  reviewTimeText: { color: '#94a3b8', fontSize: 11, fontWeight: '800' },
+  reviewSummary: { color: '#111827', lineHeight: 22, fontWeight: '900' },
+  reviewList: { gap: 4, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#e5e7eb' },
+  reviewListTitle: { color: '#111827', fontSize: 13, fontWeight: '900' },
+  reviewListItem: { color: '#475569', lineHeight: 20, fontSize: 13, fontWeight: '700' },
+  reviewEmptyText: { color: '#64748b', lineHeight: 21, fontWeight: '700' },
+  reviewNotice: { color: '#64748b', fontSize: 12, lineHeight: 18, fontWeight: '800' },
   onboardingOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 40, justifyContent: 'center', padding: 18 },
   onboardingBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(15,23,42,0.24)' },
   onboardingCard: { ...softShadow, maxHeight: '92%', borderRadius: 12, padding: 16, backgroundColor: '#fff' },
