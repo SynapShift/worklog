@@ -161,4 +161,4 @@ curl https://your-domain.example/api/health
 
 ## License
 
-MIT
+[MIT](./LICENSE)
