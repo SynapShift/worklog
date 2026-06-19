@@ -1,0 +1,29 @@
+{
+  "name": "worklog",
+  "version": "0.1.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "web": "expo start --web",
+    "build": "expo export --platform web --output-dir dist && node scripts/prepare-pwa.js",
+    "check:open-source": "node scripts/check-open-source-safety.js",
+    "check": "npm run check:open-source && npm run build",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name worklog"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~4.0.1",
+    "expo": "~52.0.0",
+    "expo-asset": "~11.0.5",
+    "expo-status-bar": "~2.0.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-native": "0.76.5",
+    "react-native-web": "~0.19.13"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2"
+  }
+}

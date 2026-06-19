@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "WorkLog",
+    "slug": "worklog",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#f8fafc"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.worklog.app"
+    },
+    "android": {
+      "package": "com.worklog.app"
+    },
+    "plugins": [
+      "expo-asset"
+    ]
+  }
+}
