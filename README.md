@@ -122,33 +122,6 @@ curl https://your-domain.example/api/health
 
 备份不包含 API Key。
 
-## 开源建议
-
-建议开源前保留：
-
-- `.env.example`
-- `.github/ISSUE_TEMPLATE/`
-- `CHANGELOG.md`
-- `CONTRIBUTING.md`
-- `LICENSE`
-- `ROADMAP.md`
-- `SECURITY.md`
-- `wrangler.example.toml`
-- `docs/PRODUCT.md`
-- `migrations/schema.sql`
-- `functions/api/[[path]].js`
-- `scripts/prepare-pwa.js`
-- `README.md`
-- `DEPLOY.md`
-
-不要提交：
-
-- `wrangler.toml`
-- `.wrangler/`
-- `dist/`
-- `node_modules/`
-- 本地生成的 Android/iOS 原生工程和安装包
-
 ## Project Docs
 
 - [Product notes](./docs/PRODUCT.md)
