@@ -185,6 +185,10 @@ const headers = `/*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
 
+/robots.txt
+  Content-Type: text/plain
+  Cache-Control: no-cache
+
 /sw.js
   Cache-Control: no-cache
 
@@ -240,6 +244,7 @@ fs.writeFileSync(path.join(distDir, 'icon-192.png'), createIconPng(192));
 fs.writeFileSync(path.join(distDir, 'icon-512.png'), createIconPng(512));
 fs.writeFileSync(path.join(distDir, 'manifest.webmanifest'), `${JSON.stringify(manifest, null, 2)}\n`);
 fs.writeFileSync(path.join(distDir, 'sw.js'), serviceWorker);
+fs.writeFileSync(path.join(distDir, 'robots.txt'), 'User-agent: *\nDisallow: /api/\n');
 fs.writeFileSync(path.join(distDir, '_headers'), headers);
 
 if (fs.existsSync(indexPath)) {
