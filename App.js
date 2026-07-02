@@ -2791,6 +2791,7 @@ function hasResultEvidence(text) {
 }
 
 async function polishWithModel({ endpoint, model, apiKey, rawText, fallback }) {
+  const fixedTypeLabel = entryTypes[fallback.type]?.label || fallback.type;
   const response = await fetch(endpoint.trim(), {
     method: 'POST',
     headers: {
@@ -2807,7 +2808,16 @@ async function polishWithModel({ endpoint, model, apiKey, rawText, fallback }) {
         },
         {
           role: 'user',
-          content: `把这条工作碎片整理成结构化记录。返回字段：type(work/todo/risk/note), project, formalText。\n原文：${rawText}`,
+          content: [
+            '把这条记录的“具体内容”润色成适合工作记录/报告沉淀的表达。',
+            '只返回 JSON，不要 Markdown。',
+            `记录类型固定为：${fallback.type}（${fixedTypeLabel}），不要改。`,
+            `项目名固定为：${fallback.project || '未归类'}，不要改、不要扩写、不要替换同义词。`,
+            '只优化 formalText 字段；formalText 不要重复写项目名作为开头。',
+            '返回字段：formalText。',
+            `原始记录：${rawText}`,
+            `当前内容：${fallback.formalText}`,
+          ].join('\n'),
         },
       ],
     }),
@@ -2821,13 +2831,32 @@ async function polishWithModel({ endpoint, model, apiKey, rawText, fallback }) {
   const content = data?.choices?.[0]?.message?.content || '';
   const jsonText = content.match(/\{[\s\S]*\}/)?.[0] || content;
   const parsed = JSON.parse(jsonText);
-  const validType = ['work', 'todo', 'risk', 'note', 'life'].includes(parsed.type) ? parsed.type : fallback.type;
 
   return {
-    type: validType,
-    project: parsed.project || fallback.project,
-    formalText: parsed.formalText || fallback.formalText,
+    type: fallback.type,
+    project: fallback.project,
+    formalText: cleanPolishedText(parsed.formalText, fallback),
   };
+}
+
+function cleanPolishedText(text, fallback) {
+  const fallbackText = String(fallback.formalText || '').trim();
+  let value = String(text || '').trim() || fallbackText;
+  const project = String(fallback.project || '').trim();
+
+  if (!project) return value;
+
+  const escapedProject = escapeRegExp(project);
+  value = value
+    .replace(new RegExp(`^(${escapedProject})([\\s:：,，。.-]+)\\1([\\s:：,，。.-]+)?`, 'i'), '')
+    .replace(new RegExp(`^(${escapedProject})([\\s:：,，。.-]+)`, 'i'), '')
+    .trim();
+
+  return value || fallbackText;
+}
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 async function testModelConnection({ endpoint, model, apiKey }) {
